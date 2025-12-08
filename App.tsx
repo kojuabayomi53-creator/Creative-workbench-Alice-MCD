@@ -5,11 +5,14 @@ import CreateAdvert from './components/CreateAdvert';
 import CreateAssets from './components/CreateAssets';
 import IdeaGeneration from './components/IdeaGeneration';
 import Analytics from './components/Analytics';
+import BrandGuidelinesModal from './components/BrandGuidelinesModal';
 import { ViewType, GeneratedIdea, MarketingRequest } from './types';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>(ViewType.DASHBOARD);
   const [prefillData, setPrefillData] = useState<Partial<MarketingRequest> | undefined>(undefined);
+  const [hasVisitedGuidelines, setHasVisitedGuidelines] = useState(false);
+  const [guidelinesActive, setGuidelinesActive] = useState(false);
 
   const handleNavigate = (view: ViewType) => {
     // Clear prefill data if going back to dashboard
@@ -32,21 +35,29 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-macdonald-dark via-black to-slate-900 text-white font-sans selection:bg-macdonald-gold selection:text-black">
+    <div className="min-h-screen bg-gradient-to-br from-macdonald-dark via-black to-slate-900 text-white font-sans selection:bg-macdonald-gold selection:text-black relative">
+      
+      {!hasVisitedGuidelines && (
+        <BrandGuidelinesModal onComplete={(active: boolean) => {
+            setGuidelinesActive(active);
+            setHasVisitedGuidelines(true);
+        }} />
+      )}
+
       <Navigation currentView={currentView} onNavigate={handleNavigate} />
       
-      <main className="h-[calc(100vh-80px)] overflow-hidden relative">
+      <main className={`h-[calc(100vh-80px)] overflow-hidden relative transition-opacity duration-500 ${!hasVisitedGuidelines ? 'opacity-0' : 'opacity-100'}`}>
         {/* Render Views based on State */}
         {currentView === ViewType.DASHBOARD && (
           <Dashboard onNavigate={handleNavigate} />
         )}
         
         {currentView === ViewType.MODULE_A && (
-          <CreateAdvert initialData={prefillData} />
+          <CreateAdvert initialData={prefillData} guidelinesActive={guidelinesActive} />
         )}
 
         {currentView === ViewType.MODULE_B && (
-          <CreateAssets />
+          <CreateAssets guidelinesActive={guidelinesActive} />
         )}
 
         {currentView === ViewType.MODULE_C && (

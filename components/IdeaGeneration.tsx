@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { ViewType, GeneratedIdea, MarketingRequest } from '../types';
-import { generateMarketingIdeas } from '../services/geminiService';
-import { Send, Sparkles, ArrowRight, MessageSquare, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { GeneratedIdea } from '../types';
+import { chatWithGrounding, transcribeAudio } from '../services/geminiService';
+import { Send, Sparkles, ArrowRight, MessageSquare, Image as ImageIcon, Globe, Mic, StopCircle, ExternalLink } from 'lucide-react';
 
 interface IdeaGenerationProps {
   onIdeaSelected: (idea: GeneratedIdea) => void;
@@ -9,18 +9,60 @@ interface IdeaGenerationProps {
 
 const IdeaGeneration: React.FC<IdeaGenerationProps> = ({ onIdeaSelected }) => {
   const [input, setInput] = useState('');
-  const [goal, setGoal] = useState('Increase Direct Bookings');
+  const [useGrounding, setUseGrounding] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [ideas, setIdeas] = useState<GeneratedIdea[]>([]);
+  const [chatHistory, setChatHistory] = useState<{role: 'user' | 'ai', content: string, links?: string[]}[]>([
+      { role: 'ai', content: 'I am your AI Creative Partner. Tell me about the season, audience, or product you want to promote.' }
+  ]);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!input.trim()) return;
 
+    const userMsg = input;
+    setInput('');
+    setChatHistory(prev => [...prev, { role: 'user', content: userMsg }]);
     setLoading(true);
-    const result = await generateMarketingIdeas(input, goal);
-    setIdeas(result);
+
+    const response = await chatWithGrounding(userMsg, useGrounding);
+    
+    setChatHistory(prev => [...prev, { role: 'ai', content: response.text, links: response.links }]);
     setLoading(false);
+  };
+
+  const toggleRecording = async () => {
+    if (isRecording) {
+        mediaRecorderRef.current?.stop();
+        setIsRecording(false);
+    } else {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+            const audioChunks: Blob[] = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                setLoading(true);
+                const text = await transcribeAudio(audioBlob);
+                setInput(prev => prev + " " + text);
+                setLoading(false);
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+            setIsRecording(true);
+        } catch (e) {
+            console.error("Mic Error", e);
+            alert("Microphone access denied or not available.");
+        }
+    }
   };
 
   return (
@@ -32,42 +74,38 @@ const IdeaGeneration: React.FC<IdeaGenerationProps> = ({ onIdeaSelected }) => {
            <h2 className="text-2xl font-bold uppercase text-white flex items-center gap-2">
              <Sparkles className="text-macdonald-gold" /> Idea Lab
            </h2>
-           <p className="text-xs text-gray-400 mt-2">Powered by Gemini 2.5 Flash</p>
+           <p className="text-xs text-gray-400 mt-2">Powered by Gemini 3 Pro</p>
         </div>
 
-        <div className="flex-1 overflow-y-auto mb-4 space-y-4">
-           {/* Chat Bubble Simulation */}
-           <div className="bg-white/10 p-4 rounded-tr-xl rounded-br-xl rounded-bl-xl border border-white/5">
-             <p className="text-sm text-gray-200">
-               I am your AI Creative Partner. Tell me about the season, audience, or product you want to promote.
-             </p>
+        {/* Input Area */}
+        <div className="mt-auto space-y-4">
+           {/* Controls */}
+           <div className="flex items-center justify-between">
+               <button 
+                onClick={() => setUseGrounding(!useGrounding)}
+                className={`flex items-center gap-2 text-xs px-3 py-1 rounded-full border transition-all ${useGrounding ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'border-white/20 text-gray-500'}`}
+               >
+                   <Globe size={12} /> Google Search Grounding {useGrounding ? 'ON' : 'OFF'}
+               </button>
+
+               <button
+                 onClick={toggleRecording}
+                 className={`flex items-center gap-2 text-xs px-3 py-1 rounded-full border transition-all ${isRecording ? 'bg-red-500/20 border-red-500 text-red-400 animate-pulse' : 'border-white/20 text-gray-500'}`}
+               >
+                   {isRecording ? <><StopCircle size={12}/> Recording...</> : <><Mic size={12}/> Voice Input</>}
+               </button>
            </div>
-        </div>
 
-        <form onSubmit={handleSubmit} className="mt-auto space-y-4">
-          <div>
-            <label className="text-[10px] text-macdonald-gold uppercase block mb-1">Campaign Goal</label>
-            <select 
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              className="w-full bg-black/50 border border-white/20 p-2 text-white text-sm focus:border-macdonald-gold focus:outline-none"
-            >
-              <option>Increase Direct Bookings</option>
-              <option>Drive Off-Peak Revenue</option>
-              <option>Promote New Restaurant</option>
-              <option>Build Brand Loyalty</option>
-            </select>
-          </div>
-          <div className="relative">
+          <form onSubmit={handleSubmit} className="relative">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="e.g. A winter spa break for couples..."
+              placeholder="Ask about campaigns, local trends, or competitors..."
               className="w-full bg-black/50 border border-white/20 p-3 pr-10 text-white h-32 focus:border-macdonald-gold focus:outline-none resize-none text-sm"
               onKeyDown={(e) => {
                 if(e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  handleSubmit(e);
+                  handleSubmit();
                 }
               }}
             />
@@ -78,48 +116,55 @@ const IdeaGeneration: React.FC<IdeaGenerationProps> = ({ onIdeaSelected }) => {
             >
               <Send size={16} />
             </button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
 
-      {/* Results Panel */}
-      <div className="lg:col-span-8 p-8 overflow-y-auto bg-gradient-to-br from-black/20 to-macdonald-green/10">
-        {loading ? (
-          <div className="h-full flex flex-col items-center justify-center">
-            <div className="w-16 h-16 border-4 border-macdonald-gold border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-white uppercase tracking-widest animate-pulse">Brainstorming Concepts...</p>
-          </div>
-        ) : ideas.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4">
-            <h3 className="text-white font-bold uppercase mb-4 opacity-50">Generated Concepts</h3>
-            {ideas.map((idea, index) => (
-              <div 
-                key={index}
-                onClick={() => onIdeaSelected(idea)}
-                className="group bg-black/60 border border-white/10 p-6 hover:border-macdonald-gold cursor-pointer transition-all hover:translate-x-2"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-xl font-bold text-white mb-2 group-hover:text-macdonald-gold">{idea.title}</h4>
-                    <p className="text-gray-300 text-sm mb-3">{idea.pitch}</p>
-                    <div className="flex items-center gap-2 text-xs text-macdonald-gold/70">
-                       <ImageIcon size={12} />
-                       <span>Visual: {idea.visuals}</span>
+      {/* Results Panel / Chat History */}
+      <div className="lg:col-span-8 p-8 overflow-y-auto bg-gradient-to-br from-black/20 to-macdonald-green/10 flex flex-col">
+        <div className="space-y-6">
+            {chatHistory.map((msg, idx) => (
+                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-2xl p-6 rounded-xl border ${msg.role === 'user' ? 'bg-white/10 border-white/5' : 'bg-black/60 border-macdonald-gold/30'}`}>
+                        <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                        
+                        {/* Render Grounding Links */}
+                        {msg.links && msg.links.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-white/10">
+                                <p className="text-[10px] text-gray-400 uppercase mb-2">Sources</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {msg.links.slice(0, 3).map((link, i) => (
+                                        <a key={i} href={link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] bg-white/5 px-2 py-1 rounded hover:bg-white/10 text-blue-300 truncate max-w-[200px]">
+                                            <ExternalLink size={10} /> {new URL(link).hostname}
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {msg.role === 'ai' && idx !== 0 && (
+                             <button 
+                                onClick={() => onIdeaSelected({ title: "Generated Idea", pitch: msg.content, visuals: "Based on chat context" })}
+                                className="mt-4 text-xs text-macdonald-gold uppercase flex items-center gap-1 hover:underline"
+                             >
+                                 Use this Concept <ArrowRight size={12} />
+                             </button>
+                        )}
                     </div>
-                  </div>
-                  <div className="bg-white/5 p-2 rounded-full group-hover:bg-macdonald-gold group-hover:text-black transition-colors">
-                    <ArrowRight size={20} />
-                  </div>
                 </div>
-              </div>
             ))}
-          </div>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center text-white/20">
-            <MessageSquare size={64} className="mb-4" />
-            <p className="uppercase tracking-widest">Start the conversation</p>
-          </div>
-        )}
+            {loading && (
+                 <div className="flex justify-start">
+                    <div className="bg-black/60 border border-macdonald-gold/30 p-4 rounded-xl">
+                        <div className="flex gap-1">
+                            <div className="w-2 h-2 bg-macdonald-gold rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-macdonald-gold rounded-full animate-bounce delay-75"></div>
+                            <div className="w-2 h-2 bg-macdonald-gold rounded-full animate-bounce delay-150"></div>
+                        </div>
+                    </div>
+                 </div>
+            )}
+        </div>
       </div>
 
     </div>
